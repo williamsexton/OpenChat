@@ -311,4 +311,3 @@ emailed without encryption, or placed in a shared developer `.env`, revoke that
 key in Google Cloud/Firebase and generate a dedicated production replacement.
 Update `FCM_SERVICE_ACCOUNT`, redeploy the API, repeat the in-container project
 check, and run both platform tests again.
-
