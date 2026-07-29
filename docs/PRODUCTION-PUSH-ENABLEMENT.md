@@ -7,18 +7,18 @@ and exactly one `api` container runs.
 
 ## Current release status
 
-As of 2026-07-29, the push implementation is **not on upstream `main` yet**.
+As of 2026-07-29, the push implementation is on upstream
+`MinionEnjoyer/OpenChat:main`.
 
-- Upstream draft PR:
+- Merged upstream implementation PR:
   <https://github.com/MinionEnjoyer/OpenChat/pull/4>
-- Upstream target: `MinionEnjoyer/OpenChat:main`
-- PR head: `williamsexton:pr/integration-upstream-20260729`
+- Merge commit: `63d8e2d78aec16cb3f20245377b0c45dc917fdbe`
 - Focused release PR:
   <https://github.com/williamsexton/OpenChat/pull/1>
 - Focused release head: `williamsexton:testflight-2026-07-28`
 
-PR 4 is conflict-free and its Verify and Contract jobs pass. Merge PR 4 into
-upstream `main` before telling the production host to deploy `main`.
+PR 4's Verify and Contract jobs passed before it was merged. Production should
+deploy current upstream `main`, not either historical feature branch.
 
 ## What is already inside the mobile builds
 
@@ -75,10 +75,9 @@ These commands assume an Ubuntu/Debian host, `/opt/chat`, and the production
 Docker Compose stack. Substitute the actual secure download path for
 `/tmp/openchat-app-f9272-firebase-adminsdk.json`.
 
-### 1. Confirm the code has reached upstream main
+### 1. Update to current upstream main
 
 Do not deploy the focused `testflight-2026-07-28` branch directly to production.
-After PR 4 is reviewed and merged:
 
 ```bash
 cd /opt/chat
@@ -90,7 +89,7 @@ git log -1 --oneline
 ```
 
 `git status --short` should print nothing. The latest commit must include the
-merged upstream PR 4.
+merged upstream PR 4 (`63d8e2d7` or a descendant).
 
 ### 2. Install and validate the Firebase credential
 
