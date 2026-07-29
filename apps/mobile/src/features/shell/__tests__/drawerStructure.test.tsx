@@ -96,6 +96,14 @@ jest.mock('../../inbox', () => ({
 const { QueryClient, QueryClientProvider } = require('@tanstack/react-query');
 const { SafeAreaProvider } = require('react-native-safe-area-context');
 const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const mountedRenderers: renderer.ReactTestRenderer[] = [];
+
+afterEach(() => {
+  renderer.act(() => {
+    mountedRenderers.splice(0).forEach((tree) => tree.unmount());
+  });
+  qc.clear();
+});
 
 // ShellScreen calls useSafeAreaInsets() (DD-023 composer inset fix), which throws
 // outside a provider. initialMetrics avoids waiting on an onLayout that never fires
@@ -123,6 +131,7 @@ describe('DD-023 — Drawer structure (2 columns, DM in rail)', () => {
     renderer.act(() => {
       tree = renderer.create(renderShell(React, ShellScreen));
     });
+    mountedRenderers.push(tree!);
     const root = tree!.root;
 
     const railDm = root.findByProps({ testID: 'rail-dm' });
@@ -145,6 +154,7 @@ describe('DD-023 — Drawer structure (2 columns, DM in rail)', () => {
     renderer.act(() => {
       tree = renderer.create(renderShell(React, ShellScreen));
     });
+    mountedRenderers.push(tree!);
     const root = tree!.root;
 
     const leftDrawer = root.findAllByProps({ testID: 'left-drawer' });

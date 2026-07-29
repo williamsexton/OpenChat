@@ -47,6 +47,7 @@ services:
     environment:
       NODE_ENV: development
       DEV_AUTH: "1"
+      API_PORT: "3001"
       DATABASE_URL: postgresql://${POSTGRES_USER:-chat}:${POSTGRES_PASSWORD:-chat}@postgres:5432/${POSTGRES_DB:-chat}
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: dev-dev-dev-dev-16

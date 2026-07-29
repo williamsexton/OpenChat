@@ -1,7 +1,34 @@
 import type { User, Server, Channel, Message, WsTicket, Role, ServerMemberInfo, Notifications, WatchPartyState, LibraryItem, Gif, ServerSound, ApiToken, CreatedApiToken } from './types';
-import { apiBase, getToken } from './serverConfig';
+import { apiBase, getToken, getRefreshToken, setTokens, clearTokens } from './serverConfig';
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+// Native-client token refresh (OAuth refresh_token grant). Single-flight so a burst
+// of 401s triggers exactly one rotation. Web (cookie) has no refresh token → no-op.
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function doRefresh(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const res = await fetch(`${apiBase()}/auth/oauth/token`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grantType: 'refresh_token', refreshToken }),
+    });
+    if (!res.ok) { clearTokens(); return false; }  // refresh revoked/expired → force re-login
+    const data = await res.json();
+    setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken, expiresIn: data.expiresIn });
+    return true;
+  } catch { return false; }
+}
+
+function tryRefresh(): Promise<boolean> {
+  if (!getRefreshToken()) return Promise.resolve(false);
+  if (!refreshInFlight) refreshInFlight = doRefresh().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function request<T>(url: string, options?: RequestInit, _retried = false): Promise<T> {
   const token = getToken();
   const res = await fetch(`${apiBase()}${url}`, {
     credentials: 'include',
@@ -14,6 +41,11 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
 
+  // Native client with an expired access token: rotate once and retry.
+  if (res.status === 401 && !_retried && getRefreshToken()) {
+    if (await tryRefresh()) return request<T>(url, options, true);
+  }
+
   if (!res.ok) {
     const errorText = await res.text();
     const err = new Error(`API Error ${res.status}: ${errorText}`) as Error & { status?: number };
@@ -23,6 +55,34 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (res.status === 204) return undefined as unknown as T;
   return (await res.json()) as T;
+}
+
+/** Native sign-in: exchange a PKCE authorization code for a token family. */
+export async function exchangeAuthCode(code: string, codeVerifier: string, redirectUri: string) {
+  const res = await fetch(`${apiBase()}/auth/oauth/token`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grantType: 'authorization_code', code, codeVerifier, redirectUri }),
+  });
+  if (!res.ok) throw new Error(`token exchange failed (${res.status})`);
+  const data = await res.json();
+  setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken, expiresIn: data.expiresIn });
+  return data;
+}
+
+/** Revoke the refresh-token family server-side (best effort) and clear local tokens. */
+export async function logout() {
+  const refreshToken = getRefreshToken();
+  try {
+    await fetch(`${apiBase()}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+    });
+  } catch { /* ignore — still clear locally */ }
+  clearTokens();
 }
 
 export const getMe = () => request<User>('/auth/me');

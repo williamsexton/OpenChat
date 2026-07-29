@@ -452,7 +452,15 @@ export class MessagesService {
     const preview = content.replace(/\s+/g, ' ').slice(0, 80);
     for (const uid of targets) {
       await this.redis.publish('chat:events', {
-        type: 'MENTION', userId: uid, channelId, messageId, channelName: channel.name, authorName, preview,
+        type: 'MENTION',
+        userId: uid,
+        channelId,
+        serverId: channel.serverId ?? undefined,
+        dmChannelId: channel.serverId ? undefined : channelId,
+        messageId,
+        channelName: channel.name,
+        authorName,
+        preview,
       });
     }
   }
@@ -503,6 +511,8 @@ export class MessagesService {
         type: 'NOTIFY',
         userId: uid,
         channelId,
+        serverId: channel.serverId ?? undefined,
+        dmChannelId: channel.serverId ? undefined : channelId,
         authorName,
         messageId,
         preview,

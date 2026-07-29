@@ -5,10 +5,16 @@ use tauri::{
 };
 use tauri_plugin_updater::UpdaterExt;
 
-// Pull ?token=… out of an openchat://auth?token=… deep link and hand it to the
-// web layer, which stores it and reloads into the signed-in app.
+// Hand an openchat://auth deep link to the web layer. Preferred: ?code=… (PKCE
+// authorization code, exchanged for a token family) → "auth-code". Legacy: ?token=…
+// (raw token from older servers) → "auth-token".
 fn handle_auth_url(app: &AppHandle, url: &str) {
-    if let Some((_, rest)) = url.split_once("token=") {
+    if let Some((_, rest)) = url.split_once("code=") {
+        let code = rest.split('&').next().unwrap_or("");
+        if !code.is_empty() {
+            let _ = app.emit("auth-code", code.to_string());
+        }
+    } else if let Some((_, rest)) = url.split_once("token=") {
         let token = rest.split('&').next().unwrap_or("");
         if !token.is_empty() {
             let _ = app.emit("auth-token", token.to_string());
@@ -61,15 +67,42 @@ fn unregister_ptt(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// Driven by the web "checking for updates" gate on launch. Returns false when the
-// app is already current; when an update is found it downloads it (emitting progress
-// events) and relaunches into the new version (so this never returns in that case).
+// Marker file recording the version of the last update we attempted. Used to break the
+// infinite-update loop that a botched install can cause (see run_update).
+fn update_attempt_marker(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join(".update-attempt"))
+}
+
+// Driven by the web "checking for updates" gate on launch. Returns false when the app is
+// already current (or when a prior update didn't stick — see the loop guard); when an update
+// is found it downloads it (emitting progress) and relaunches into the new version.
+//
+// Loop guard: a known Windows/NSIS updater failure mode installs the new version into a
+// DIFFERENT directory than the running app, so the running binary is never replaced — the
+// updater then keeps offering the "update" forever (download → restart → same version →
+// repeat), hanging the app each cycle. We record the version we attempted; if on the next
+// launch we're STILL on an older version than that same target, we assume the install didn't
+// take and DO NOT re-download — we return false so the app just opens. (User can reinstall
+// manually to move to the new version.) A genuinely-newer target clears the guard.
 #[tauri::command]
 async fn run_update(app: AppHandle) -> Result<bool, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     let updater = app.updater().map_err(|e| e.to_string())?;
+    let marker = update_attempt_marker(&app);
     match updater.check().await.map_err(|e| e.to_string())? {
         Some(update) => {
+            let target = update.version.to_string();
+            let current = app.package_info().version.to_string();
+            if current != target {
+                if let Some(m) = &marker {
+                    if std::fs::read_to_string(m).ok().as_deref() == Some(target.as_str()) {
+                        // Already tried this exact target and it didn't stick — stop looping.
+                        return Ok(false);
+                    }
+                    if let Some(parent) = m.parent() { let _ = std::fs::create_dir_all(parent); }
+                    let _ = std::fs::write(m, &target);
+                }
+            }
             let _ = app.emit("update://status", "downloading");
             let downloaded = AtomicU64::new(0);
             update
@@ -84,8 +117,10 @@ async fn run_update(app: AppHandle) -> Result<bool, String> {
                 .map_err(|e| e.to_string())?;
             app.restart();
         }
-        None => Ok(false),
+        // Up to date — clear any stale attempt marker so a future update isn't wrongly skipped.
+        None => { if let Some(m) = &marker { let _ = std::fs::remove_file(m); } }
     }
+    Ok(false)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

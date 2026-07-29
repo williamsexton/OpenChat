@@ -50,8 +50,35 @@ export function mediaUrl(path: string): string {
   return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
 }
 
-// ---- bearer token (native clients; web uses the session cookie) ----
+// ---- bearer tokens (native clients; web uses the session cookie) ----
+// Native clients authenticate with a short-lived access token + a rotating refresh
+// token (OAuth Authorization-Code + PKCE, issued by POST /auth/oauth/token). The web
+// build uses the session cookie and stores nothing here. TOKEN_KEY keeps its historical
+// name so an existing install's stored token keeps working until the next sign-in.
+const REFRESH_KEY = 'openchat.refresh';
+const EXP_KEY = 'openchat.tokenExp';
+
+/** Access token sent as `Authorization: Bearer` (and as ?token= for media). */
 export function getToken(): string | null { return safeGet(TOKEN_KEY); }
+export function getRefreshToken(): string | null { return safeGet(REFRESH_KEY); }
+export function getTokenExpiry(): number { const v = safeGet(EXP_KEY); return v ? Number(v) : 0; }
+
+/** Store a token family from an /auth/oauth/token response (login or refresh). */
+export function setTokens(t: { accessToken: string; refreshToken?: string; expiresIn?: number }) {
+  try {
+    localStorage.setItem(TOKEN_KEY, t.accessToken);
+    if (t.refreshToken) localStorage.setItem(REFRESH_KEY, t.refreshToken);
+    if (t.expiresIn) localStorage.setItem(EXP_KEY, String(Date.now() + t.expiresIn * 1000));
+  } catch { /* ignore */ }
+}
+
+/** Back-compat single-token setter: sets just the access token (e.g. manual paste),
+ *  or clears the whole family when passed null. Prefer setTokens()/clearTokens(). */
 export function setToken(token: string | null) {
-  try { token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+  if (token === null) { clearTokens(); return; }
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+}
+
+export function clearTokens() {
+  try { [TOKEN_KEY, REFRESH_KEY, EXP_KEY].forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
 }

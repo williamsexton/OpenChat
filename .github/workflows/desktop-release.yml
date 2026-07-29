@@ -81,7 +81,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_SERVER_URL: ${{ vars.SERVER_URL }}
 
-  # 3) Publish the release once both platforms are uploaded.
+  # 3) Publish the release once both platforms are uploaded. This flips the draft to
+  #    published so `releases/latest/download/latest.json` resolves to this version with
+  #    correct, publicly-downloadable asset URLs — a draft here leaves the updater manifest
+  #    pointing at the previous release (or unresolvable draft asset URLs), which hangs
+  #    clients mid-download. Keep this auto-publish.
   publish-release:
     needs: [create-release, build]
     runs-on: ubuntu-latest

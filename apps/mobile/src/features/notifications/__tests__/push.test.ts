@@ -51,12 +51,29 @@ jest.mock('../foregroundHandler', () => ({
 
 // ── iOS FCM mock state ──
 const mockIosGetToken = jest.fn();
+const mockIosRegisterDevice = jest.fn();
+const mockIosGetInitialNotification = jest.fn();
+let mockIosIsDeviceRegistered = true;
 // Captured rotation callback — set by onTokenRefresh, fired by tests
 let capturedRotationCallback: ((token: string) => void) | null = null;
+let capturedIosOpenedCallback:
+  | ((message: { data?: Record<string, unknown> }) => void)
+  | null = null;
 
 jest.mock('@react-native-firebase/messaging', () => {
   const instance = {
     getToken: (...args: unknown[]) => mockIosGetToken(...args),
+    get isDeviceRegisteredForRemoteMessages() {
+      return mockIosIsDeviceRegistered;
+    },
+    registerDeviceForRemoteMessages: (...args: unknown[]) => mockIosRegisterDevice(...args),
+    getInitialNotification: (...args: unknown[]) => mockIosGetInitialNotification(...args),
+    onNotificationOpenedApp: (
+      cb: (message: { data?: Record<string, unknown> }) => void,
+    ) => {
+      capturedIosOpenedCallback = cb;
+      return () => { capturedIosOpenedCallback = null; };
+    },
     onTokenRefresh: (cb: (token: string) => void) => {
       capturedRotationCallback = cb;
       return () => { capturedRotationCallback = null; };
@@ -64,7 +81,7 @@ jest.mock('@react-native-firebase/messaging', () => {
   };
   return {
     __esModule: true,
-    default: jest.fn(() => instance),
+    default: () => instance,
   };
 });
 
@@ -94,7 +111,11 @@ beforeEach(() => {
     getToken: mockIosGetToken,
   });
   mockIosGetToken.mockResolvedValue(null);
+  mockIosRegisterDevice.mockResolvedValue(undefined);
+  mockIosGetInitialNotification.mockResolvedValue(null);
+  mockIosIsDeviceRegistered = true;
   capturedRotationCallback = null;
+  capturedIosOpenedCallback = null;
 });
 
 // ── Permission flow ──
@@ -509,6 +530,47 @@ describe('setupNotificationTapHandler — deep-link tap-through (FR-NOTIF-002)',
   });
 });
 
+describe('iOS Firebase notification tap-through (FR-NOTIF-002)', () => {
+  beforeEach(() => {
+    _setPlatformForTest('ios');
+    mockAddResponseListener.mockReturnValue({ remove: jest.fn() });
+    mockGetLastResponse.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    _resetPlatformForTest();
+  });
+
+  it('routes a warm-opened Firebase DM notification', () => {
+    const onNavigate = jest.fn();
+    setupNotificationTapHandler(onNavigate);
+
+    capturedIosOpenedCallback!({ data: { dmChannelId: 'dm-fcm-1' } });
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      type: 'dm',
+      dmChannelId: 'dm-fcm-1',
+    });
+  });
+
+  it('routes a cold-start Firebase channel notification', async () => {
+    const onNavigate = jest.fn();
+    mockIosGetInitialNotification.mockResolvedValueOnce({
+      data: { serverId: 'srv-fcm-1', channelId: 'ch-fcm-1' },
+    });
+
+    setupNotificationTapHandler(onNavigate);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      type: 'channel',
+      serverId: 'srv-fcm-1',
+      channelId: 'ch-fcm-1',
+    });
+  });
+});
+
 // ── initializePush — integration ──
 
 describe('initializePush — full lifecycle (FR-NOTIF-002)', () => {
@@ -604,6 +666,21 @@ describe('iOS: registerPushToken obtains FCM token via @react-native-firebase/me
     });
     // expo-notifications getDevicePushTokenAsync is NOT called on iOS
     expect(mockGetDevicePushToken).not.toHaveBeenCalled();
+  });
+
+  it('registers for remote messages before obtaining an iOS token', async () => {
+    _resetMocksForTest();
+    _setPlatformForTest('ios');
+    mockIosIsDeviceRegistered = false;
+    mockIosGetToken.mockResolvedValueOnce('ios-fcm-after-apns-registration');
+    mockApiRequest.mockResolvedValueOnce({ status: 201 });
+
+    const token = await registerPushToken();
+
+    expect(token).toBe('ios-fcm-after-apns-registration');
+    expect(mockIosRegisterDevice).toHaveBeenCalledTimes(1);
+    expect(mockIosRegisterDevice.mock.invocationCallOrder[0]!)
+      .toBeLessThan(mockIosGetToken.mock.invocationCallOrder[0]!);
   });
 
   // ── Perturbation proof: change token → POST body changes ──

@@ -1,6 +1,6 @@
 [package]
 name = "openchat-desktop"
-version = "0.8.2"
+version = "0.8.32"
 description = "OpenChat desktop client"
 edition = "2021"
 rust-version = "1.77"

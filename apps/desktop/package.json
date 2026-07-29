@@ -1,7 +1,7 @@
 {
   "name": "openchat-desktop",
   "private": true,
-  "version": "0.8.2",
+  "version": "0.8.32",
   "type": "module",
   "description": "OpenChat desktop client (Tauri shell over the web app)",
   "scripts": {

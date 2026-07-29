@@ -97,10 +97,17 @@ export function _resetMocksForTest(): void {
   // Reset iOS FCM token seams to real implementations
   _getIosFcmToken = _defaultGetIosFcmToken;
   _subscribeIosTokenRotation = _defaultSubscribeIosTokenRotation;
+  _subscribeIosNotificationOpened = _defaultSubscribeIosNotificationOpened;
+  _getInitialIosNotification = _defaultGetInitialIosNotification;
 }
 
 export function _setStoredTokenForTest(token: string | null): void {
   _storedToken = token;
+}
+
+/** True once this session has registered a remote-push token with the API. */
+export function hasRegisteredPushToken(): boolean {
+  return _storedToken !== null;
 }
 
 // Writable function references (default to real Notifications)
@@ -120,10 +127,19 @@ let _getIosFcmToken: () => Promise<string | null> = async () => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     const messaging = require('@react-native-firebase/messaging').default as {
-      (): { getToken: () => Promise<string> };
+      (): {
+        getToken: () => Promise<string>;
+        registerDeviceForRemoteMessages: () => Promise<void>;
+      };
     };
-    return await messaging().getToken();
-  } catch {
+    const instance = messaging();
+    // Apple recommends registering on every launch. The call is idempotent and,
+    // unlike RNFirebase's cached JS flag, reflects UIKit's actual APNs state.
+    await instance.registerDeviceForRemoteMessages();
+    return await instance.getToken();
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[push] iOS FCM token acquisition failed', error);
     return null;
   }
 };
@@ -143,16 +159,65 @@ let _subscribeIosTokenRotation: () => () => void = () => {
   }
 };
 
+interface IosRemoteMessage {
+  data?: Record<string, unknown>;
+}
+
+let _subscribeIosNotificationOpened: (
+  listener: (message: IosRemoteMessage) => void,
+) => () => void = (listener) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    const messaging = require('@react-native-firebase/messaging').default as {
+      (): {
+        onNotificationOpenedApp: (
+          cb: (message: IosRemoteMessage) => void,
+        ) => () => void;
+      };
+    };
+    return messaging().onNotificationOpenedApp(listener);
+  } catch {
+    return () => {};
+  }
+};
+
+let _getInitialIosNotification: () => Promise<IosRemoteMessage | null> =
+  async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+      const messaging = require('@react-native-firebase/messaging').default as {
+        (): {
+          getInitialNotification: () => Promise<IosRemoteMessage | null>;
+        };
+      };
+      return await messaging().getInitialNotification();
+    } catch {
+      return null;
+    }
+  };
+
 // Capture defaults so _resetMocksForTest can restore them
 const _defaultGetIosFcmToken = _getIosFcmToken;
 const _defaultSubscribeIosTokenRotation = _subscribeIosTokenRotation;
+const _defaultSubscribeIosNotificationOpened = _subscribeIosNotificationOpened;
+const _defaultGetInitialIosNotification = _getInitialIosNotification;
 
 export function _setIosMessagingForTest(mock: {
   getToken?: () => Promise<string | null>;
   onTokenRefresh?: () => () => void;
+  onNotificationOpenedApp?: (
+    listener: (message: IosRemoteMessage) => void,
+  ) => () => void;
+  getInitialNotification?: () => Promise<IosRemoteMessage | null>;
 }): void {
   if (mock.getToken) _getIosFcmToken = mock.getToken;
   if (mock.onTokenRefresh) _subscribeIosTokenRotation = mock.onTokenRefresh;
+  if (mock.onNotificationOpenedApp) {
+    _subscribeIosNotificationOpened = mock.onNotificationOpenedApp;
+  }
+  if (mock.getInitialNotification) {
+    _getInitialIosNotification = mock.getInitialNotification;
+  }
 }
 
 let _addResponseListener: typeof Notifications.addNotificationResponseReceivedListener =
@@ -172,7 +237,9 @@ export async function requestPushPermissions(): Promise<boolean> {
   try {
     const { granted } = await _requestPermissions();
     return granted;
-  } catch {
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[push] permission request failed', error);
     return false;
   }
 }
@@ -187,7 +254,9 @@ async function getDeviceToken(): Promise<string | null> {
       return token.data;
     }
     return _getIosFcmToken();
-  } catch {
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[push] device token acquisition failed', error);
     return null;
   }
 }
@@ -201,7 +270,9 @@ async function registerTokenOnServer(token: string): Promise<string | null> {
     });
     _storedToken = token;
     return token;
-  } catch {
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[push] token registration with API failed', error);
     return null;
   }
 }
@@ -363,28 +434,42 @@ export function parseNotificationRoute(
 export function setupNotificationTapHandler(onNavigate: NavigationHandler): () => void {
   _onNavigate = onNavigate;
 
-  // Warm-start: listen for taps while the app is running
-  const sub = _addResponseListener((response: NotificationResponse) => {
-    const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+  const navigateFromData = (data: Record<string, unknown> | undefined): void => {
     const route = parseNotificationRoute(data);
     if (route.type) {
       _onNavigate?.(route);
     }
+  };
+
+  // Warm-start: listen for taps while the app is running
+  const sub = _addResponseListener((response: NotificationResponse) => {
+    const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+    navigateFromData(data);
   });
+
+  // iOS remote notifications are delivered by RNFirebase, so consume its
+  // warm-open and cold-start callbacks in addition to Expo's local responses.
+  let unsubscribeIos = () => {};
+  if (!isAndroid()) {
+    unsubscribeIos = _subscribeIosNotificationOpened((message) => {
+      navigateFromData(message.data);
+    });
+    void _getInitialIosNotification().then((message) => {
+      if (message) navigateFromData(message.data);
+    });
+  }
 
   // Cold-start: handle the notification that launched the app
   const last = _getLastResponse();
   if (last) {
     const data = last.notification.request.content.data as Record<string, unknown> | undefined;
-    const route = parseNotificationRoute(data);
-    if (route.type) {
-      _onNavigate(route);
-    }
+    navigateFromData(data);
     _clearLastResponse();
   }
 
   return () => {
     sub.remove();
+    unsubscribeIos();
     _onNavigate = null;
   };
 }

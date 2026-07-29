@@ -7,17 +7,31 @@
  * @satisfies FR-VOX-002
  */
 import React from 'react';
+import { Animated } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { VoiceTile } from '../VoiceTile';
 import type { VoiceParticipantInfo } from '../VoiceStore';
 
-// Mock Animated to avoid timing issues; we just verify presence.
-jest.mock('react-native/Libraries/Animated/Animated', () => {
-  const actual = jest.requireActual('react-native/Libraries/Animated/Animated');
-  return {
-    ...actual,
-    timing: () => ({ start: jest.fn() }),
-  };
+const mockAnimationStart = jest.fn();
+const mockAnimationStop = jest.fn();
+
+beforeEach(() => {
+  mockAnimationStart.mockClear();
+  mockAnimationStop.mockClear();
+  jest.spyOn(Animated, 'timing').mockReturnValue({
+    start: mockAnimationStart,
+    stop: mockAnimationStop,
+    reset: jest.fn(),
+  } as never);
+});
+
+const mountedRenderers: TestRenderer.ReactTestRenderer[] = [];
+
+afterEach(() => {
+  act(() => {
+    mountedRenderers.splice(0).forEach((renderer) => renderer.unmount());
+  });
+  jest.restoreAllMocks();
 });
 
 function tile(overrides: Partial<VoiceParticipantInfo> = {}): VoiceParticipantInfo {
@@ -39,6 +53,7 @@ function render(p: VoiceParticipantInfo): TestRenderer.ReactTestRenderer {
   act(() => {
     renderer = TestRenderer.create(<VoiceTile participant={p} />);
   });
+  mountedRenderers.push(renderer!);
   return renderer!;
 }
 
@@ -119,6 +134,12 @@ describe('VoiceTile (FR-VOX-002)', () => {
       const container = tree.root.findByProps({ testID: 'voice-tile-user-42' });
       expect(container).toBeTruthy();
     });
+  });
+
+  it('stops the speaking-ring animation when unmounted', () => {
+    const tree = render(tile({ isSpeaking: true, audioLevel: 0.8 }));
+    act(() => tree.unmount());
+    expect(mockAnimationStop).toHaveBeenCalledTimes(1);
   });
 
   describe('avatar', () => {

@@ -40,6 +40,7 @@ import type {
   Channel,
 } from '../../api/schema';
 import { logger } from '../../lib/logger';
+import { hasRegisteredPushToken } from './push';
 
 // ── Re-export foreground test seams so tests only import from here ──
 export { _fsSet, _fsReset };
@@ -61,6 +62,22 @@ export function _setAppStateForTest(
 export function _resetAppStateForTest(): void {
   const { AppState } = require('react-native');
   _appState = AppState.currentState as 'active' | 'inactive' | 'background';
+}
+
+// iOS has a killed-process-capable Firebase/APNs path. When it owns delivery,
+// the WebSocket bridge must not present a second local banner.
+let _remotePushPreferred = Platform.OS === 'ios';
+
+export function _setRemotePushPreferredForTest(preferred: boolean): void {
+  _remotePushPreferred = preferred;
+}
+
+export function _resetRemotePushPreferredForTest(): void {
+  _remotePushPreferred = Platform.OS === 'ios';
+}
+
+function remotePushOwnsBackgroundDelivery(): boolean {
+  return _remotePushPreferred || hasRegisteredPushToken();
 }
 
 // ── Test seams ──
@@ -233,7 +250,8 @@ export type NotifyEvent = MessageCreatedFrame | MentionFrame;
  * Route an incoming WS event to the appropriate notification path.
  *
  * - Foreground → handleForegroundNotification (in-app toast, no OS notification)
- * - Background → scheduleNotificationAsync (real system notification)
+ * - Background with remote push → let Firebase/APNs present exactly once
+ * - Background without remote push → scheduleNotificationAsync as a fallback
  * - Self-authored messages are always suppressed
  * - DM channels always notify
  * - Shared channels respect per-channel notification levels:
@@ -273,7 +291,7 @@ export function notifyIncoming(event: NotifyEvent): void {
 
     if (foreground) {
       handleForegroundNotification({ kind: 'notify' });
-    } else {
+    } else if (!remotePushOwnsBackgroundDelivery()) {
       const serverId = dm ? undefined : getServerIdForChannel(msg.channelId);
       void presentLocalNotification({
         title,
@@ -298,7 +316,7 @@ export function notifyIncoming(event: NotifyEvent): void {
         authorName: md.authorName,
         preview: md.preview,
       });
-    } else {
+    } else if (!remotePushOwnsBackgroundDelivery()) {
       // Check if this mention is for a DM channel
       const dm = isDmChannel(md.channelId);
       const serverId = dm ? undefined : getServerIdForChannel(md.channelId);

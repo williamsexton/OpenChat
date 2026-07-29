@@ -22,6 +22,8 @@ interface PushEvent {
   type: 'MENTION' | 'NOTIFY' | 'CALL_RING';
   userId: string;
   channelId?: string;
+  serverId?: string;
+  dmChannelId?: string;
   /** For MENTION: the author who wrote the message (NOT the push target). */
   authorName?: string;
   /** For CALL_RING: the caller (NOT the push target). */
@@ -260,6 +262,8 @@ export class PushDispatchService implements OnModuleInit, OnModuleDestroy {
           data: {
             type: 'mention',
             channelId: event.channelId ?? '',
+            serverId: event.serverId ?? '',
+            dmChannelId: event.dmChannelId ?? '',
             messageId: event.messageId ?? '',
           },
           android: { channelId: 'mentions', priority: 'high' },
@@ -321,6 +325,8 @@ export class PushDispatchService implements OnModuleInit, OnModuleDestroy {
           data: {
             type: 'notify',
             channelId: event.channelId ?? '',
+            serverId: event.serverId ?? '',
+            dmChannelId: event.dmChannelId ?? '',
             messageId: event.messageId ?? '',
           },
           android: { channelId: 'notifications', priority: 'default' },

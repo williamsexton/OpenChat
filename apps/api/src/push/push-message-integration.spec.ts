@@ -269,6 +269,8 @@ describe('Push dispatch integration — MessagesService → redis → PushDispat
       expect(notifyEvents.length).toBe(1);
       expect(notifyEvents[0].userId).toBe('recip-1');
       expect(notifyEvents[0].channelId).toBe('ch-1');
+      expect(notifyEvents[0].dmChannelId).toBe('ch-1');
+      expect(notifyEvents[0].serverId).toBeUndefined();
 
       // Simulate the PushDispatchService subscriber: feed the published event
       capturedHandler('chat:events', JSON.stringify(notifyEvents[0]));
@@ -279,6 +281,7 @@ describe('Push dispatch integration — MessagesService → redis → PushDispat
       expect(s.tokens).toContain('tok-recip-1');
       expect(s.payload.data?.type).toBe('notify');
       expect(s.payload.data?.channelId).toBe('ch-1');
+      expect(s.payload.data?.dmChannelId).toBe('ch-1');
       expect(s.payload.title).toContain('Author Name');
     });
   });
@@ -300,6 +303,8 @@ describe('Push dispatch integration — MessagesService → redis → PushDispat
       // Verify redis publish happened for each non-author member
       const notifyEvents = publishedEvents('NOTIFY');
       expect(notifyEvents.length).toBe(2);
+      expect(notifyEvents[0].serverId).toBe('srv-1');
+      expect(notifyEvents[0].dmChannelId).toBeUndefined();
       const userIds = notifyEvents.map((e) => e.userId).sort();
       expect(userIds).toEqual(['member-2', 'member-3']);
 

@@ -19,6 +19,8 @@ import {
   _setAppStateForTest,
   _resetAppStateForTest,
   _resetPermRequestedForTest,
+  _setRemotePushPreferredForTest,
+  _resetRemotePushPreferredForTest,
 } from '../localNotify';
 import { queryClient } from '../../../sync/queryClient';
 import { keys } from '../../../sync/keys';
@@ -34,6 +36,7 @@ import type {
   Channel,
 } from '../../../api/schema';
 import type * as Notifications from 'expo-notifications';
+import { _setStoredTokenForTest } from '../push';
 
 // ── Helpers ──
 
@@ -195,12 +198,16 @@ beforeEach(() => {
   // Clear query cache
   queryClient.clear();
   _resetPermRequestedForTest();
+  _setRemotePushPreferredForTest(false);
+  _setStoredTokenForTest(null);
 });
 
 afterEach(() => {
   _resetScheduleForTest();
   _resetAppStateForTest();
+  _resetRemotePushPreferredForTest();
   useSession.setState({ status: 'signedOut', user: null, tokens: null });
+  _setStoredTokenForTest(null);
 });
 
 // ── AC1: backgrounded + incoming DM → local notification presented ──
@@ -228,6 +235,30 @@ describe('AC1: backgrounded + incoming DM', () => {
     expect(call.content.body).toBe('Hey from DM!');
     expect(call.content.data).toEqual({ dmChannelId: 'dm-1' });
     expect(call.trigger).toBeNull();
+  });
+
+  it('does not duplicate Firebase/APNs when a remote token is registered', () => {
+    queryClient.setQueryData<DmChannelDto[]>(['dms'], [
+      makeDmChannel('dm-1'),
+    ]);
+    _setAppStateForTest('background');
+    _setStoredTokenForTest('registered-fcm-token');
+
+    notifyIncoming(makeMessageCreatedFrame({ channelId: 'dm-1' }));
+
+    expect(scheduleCalls).toHaveLength(0);
+  });
+
+  it('does not schedule locally when iOS remote push owns delivery', () => {
+    queryClient.setQueryData<DmChannelDto[]>(['dms'], [
+      makeDmChannel('dm-1'),
+    ]);
+    _setAppStateForTest('background');
+    _setRemotePushPreferredForTest(true);
+
+    notifyIncoming(makeMessageCreatedFrame({ channelId: 'dm-1' }));
+
+    expect(scheduleCalls).toHaveLength(0);
   });
 });
 

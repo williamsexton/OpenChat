@@ -16,7 +16,12 @@ module.exports = function (api) {
   // Metro keeps a second cache; when in doubt purge $TMPDIR/metro-*.
   api.cache.invalidate(
     () =>
-      `${process.env.EXPO_PUBLIC_API_HOST}|${process.env.EXPO_PUBLIC_ENABLE_DEV_LOGIN}`,
+      [
+        process.env.EXPO_PUBLIC_API_HOST,
+        process.env.EXPO_PUBLIC_API_URL,
+        process.env.EXPO_PUBLIC_WS_URL,
+        process.env.EXPO_PUBLIC_ENABLE_DEV_LOGIN,
+      ].join('|'),
   );
   return {
     presets: ['babel-preset-expo'],

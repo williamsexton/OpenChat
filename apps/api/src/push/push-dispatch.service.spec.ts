@@ -104,6 +104,21 @@ describe('PushDispatchService', () => {
     expect(transport.sends[0].payload.title).toBe('New notification');
   });
 
+  it('preserves an explicit DM route in the push data payload', async () => {
+    await service.handleEvent({
+      type: 'NOTIFY',
+      userId: USER_ID,
+      channelId: CHANNEL_ID,
+      dmChannelId: CHANNEL_ID,
+    });
+
+    expect(transport.sends[0].payload.data).toMatchObject({
+      type: 'notify',
+      channelId: CHANNEL_ID,
+      dmChannelId: CHANNEL_ID,
+    });
+  });
+
   // ── FR-NOTIF-001: CALL_RING → push ────────────────────────
   it('sends push on CALL_RING event', async () => {
     await service.handleEvent({

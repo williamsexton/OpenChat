@@ -74,10 +74,11 @@ not in the repo, not in a chat message.
 
 ## After that
 
-`aps-environment` is currently `development`, which is correct for debug builds
-and TestFlight. A production/App Store build needs `production`. Expo sets this
-from the build profile; worth checking before any store submission rather than
-discovering it when push silently stops working on a release build.
+`aps-environment` is currently `development`, which is correct for a debug build
+installed directly from Xcode. A distribution-signed TestFlight or App Store
+build needs `production`. Verify delivery on a physical device with the
+development entitlement first, then change it and verify the exact archived
+build before distributing it.
 
 ## What cannot be tested without hardware
 

@@ -163,7 +163,10 @@ export class AuthController {
       return;
     }
 
-    // Default: mint a bearer token (backward-compatible, byte-identical to today).
+    // DEPRECATED legacy path (kept only for desktop clients < 0.8.3 that don't send a
+    // code_challenge): mint a long-lived opaque app token and deep-link it. New clients
+    // use the PKCE branch above → /auth/oauth/token (rotating refresh family). Remove once
+    // old installs have updated.
     const { token } = await this.authService.createToken(session.userId, 'Desktop app');
     const deepLink = `openchat://auth?token=${encodeURIComponent(token)}`;
     res.type('html').send(
@@ -245,7 +248,10 @@ export class AuthController {
     return this.authService.mintWsTicket(user.id);
   }
 
-  // ---- app tokens (bearer auth for native/desktop clients) ----
+  // ---- personal access tokens (PATs) ----
+  // These long-lived opaque tokens remain a supported power-user feature (scripts, bots,
+  // API access). They are NO LONGER the desktop/native sign-in mechanism — native clients
+  // use OAuth Authorization-Code + PKCE via POST /auth/oauth/token (see TokenService).
 
   @Get('tokens')
   @UseGuards(SessionGuard)

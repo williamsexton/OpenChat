@@ -36,20 +36,14 @@ export function VoiceTile({ participant }: VoiceTileProps): React.JSX.Element {
   const ringAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (participant.isSpeaking && participant.audioLevel > 0) {
-      // Animate ring opacity based on audio level
-      Animated.timing(ringAnim, {
-        toValue: participant.audioLevel,
-        duration: 100,
-        useNativeDriver: false,
-      }).start();
-    } else {
-      Animated.timing(ringAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: false,
-      }).start();
-    }
+    const isAudiblySpeaking = participant.isSpeaking && participant.audioLevel > 0;
+    const animation = Animated.timing(ringAnim, {
+      toValue: isAudiblySpeaking ? participant.audioLevel : 0,
+      duration: isAudiblySpeaking ? 100 : 300,
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
   }, [participant.isSpeaking, participant.audioLevel, ringAnim]);
 
   const ringStyle = {
