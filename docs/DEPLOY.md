@@ -4,6 +4,9 @@ The workflow: **develop locally → clean → push to git → the server pulls a
 After the one-time setup, every future change goes live with `git push` here + a deploy on the
 server.
 
+For production mobile push credentials and the required Android/iOS acceptance
+test, follow [`PRODUCTION-PUSH-ENABLEMENT.md`](PRODUCTION-PUSH-ENABLEMENT.md).
+
 > Examples below assume the app lives in `/opt/chat` on your server and you run the commands there.
 > Substitute your own host and paths.
 
